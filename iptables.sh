@@ -1,14 +1,6 @@
 #!/bin/bash
 
 ###########################################################
-# このスクリプトの特徴
-#
-# 受信・通過については基本的に破棄し、ホワイトリストで許可するものを指定する。
-# 送信については基本的に許可する。ただし、サーバが踏み台になり外部のサーバに迷惑をかける可能性があるので、
-# 心配な場合は、送信も受信同様に基本破棄・ホワイトリストで許可するように書き換えると良い。
-###########################################################
-
-###########################################################
 # 用語の統一
 # わかりやすさのためルールとコメントの用語を以下に統一する
 # ACCEPT : 許可
@@ -38,34 +30,41 @@
 # !                   条件を反転（～以外となる）
 ###########################################################
 
-# パス
+# 路径
+
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+NO_COLOR="\033[0m"
+
 
 ###########################################################
 # IPの定義
 # 必要に応じて定義する。定義しなくても動作する。
 ###########################################################
 
-# 内部ネットワークとして許可する範囲
+# 内部网络范围
 # LOCAL_NET="xxx.xxx.xxx.xxx/xx"
 
-# 内部ネットワークとして一部制限付きで許可する範囲
+# 有一定限制性的内部网络
 # LIMITED_LOCAL_NET="xxx.xxx.xxx.xxx/xx"
 
-# ZabbixサーバーIP
+# ZABBIX服务器IP
 # ZABBIX_IP="xxx.xxx.xxx.xxx"
 
-# 全てのIPを表す設定を定義
+#定义一个代表所有IP的设置
 # ANY="0.0.0.0/0"
 
-# 信頼可能ホスト(配列)
+# 可信的主机（数组）
 # ALLOW_HOSTS=(
 # 	"xxx.xxx.xxx.xxx"
 # 	"xxx.xxx.xxx.xxx"
 # 	"xxx.xxx.xxx.xxx"
 # )
 
-# 無条件破棄するリスト(配列)
+# ban list 无条件的丢弃列表（数组）
 # DENY_HOSTS=(
 # 	"xxx.xxx.xxx.xxx"
 # 	"xxx.xxx.xxx.xxx"
@@ -73,7 +72,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 # )
 
 ###########################################################
-# ポート定義
+# 端口定义
 ###########################################################
 
 SSH=22
@@ -89,32 +88,42 @@ MYSQL=3306
 NET_BIOS=135,137,138,139,445
 DHCP=67,68
 
-###########################################################
-# 関数
+##########################################################
+#必须使用root用户的身份执行该程序
 ###########################################################
 
-# iptablesの初期化, すべてのルールを削除
+if [ $((UID)) != 0 ]; then
+  echo -e "$RED ERROR: You need to run this script as ROOT user $NO_COLOR" >&2
+  exit 2
+fi
+
+
+###########################################################
+# 功能
+###########################################################
+
+# iptables的初始化，删除所有的规则
 initialize() 
 {
-	iptables -F # テーブル初期化
-	iptables -X # チェーンを削除
-	iptables -Z # パケットカウンタ・バイトカウンタをクリア
+	iptables -F # 初始化表
+	iptables -X # 删除链
+	iptables -Z # 清除包计数器字节计数器
 	iptables -P INPUT   ACCEPT
 	iptables -P OUTPUT  ACCEPT
 	iptables -P FORWARD ACCEPT
 }
 
-# ルール適用後の処理
+# 
 finailize()
 {
-	/etc/init.d/iptables save && # 設定の保存
-	/etc/init.d/iptables restart && # 保存したもので再起動してみる
+	service iptables save && # 設定の保存
+	service iptables restart && # 保存したもので再起動してみる
 	return 0
 	return 1
 }
 
 # 開発用
-if [ "$1" == "dev" ]
+if [ "$1" == "-t" ]
 then
 	iptables() { echo "iptables $@"; }
 	finailize() { echo "finailize"; }
@@ -313,7 +322,7 @@ iptables -A INPUT -p tcp -m multiport --dports $IDENT -j REJECT --reject-with tc
 # iptables -A INPUT -p tcp --syn -m multiport --dports $FTP -m recent --name ftp_attack --rcheck --seconds 60 --hitcount 5 -j REJECT --reject-with tcp-reset
 
 ###########################################################
-# 全ホスト(ブロードキャストアドレス、マルチキャストアドレス)宛パケットは破棄
+# 丢弃广播包
 ###########################################################
 iptables -A INPUT -d 192.168.1.255   -j LOG --log-prefix "drop_broadcast: "
 iptables -A INPUT -d 192.168.1.255   -j DROP
@@ -339,8 +348,8 @@ iptables -A INPUT -p tcp -m multiport --dports $SSH -j ACCEPT # ANY -> SEL
 # iptables -A INPUT -p tcp -m multiport --dports $FTP -j ACCEPT # ANY -> SELF
 
 # DNS
-# iptables -A INPUT -p tcp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
-# iptables -A INPUT -p udp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
+iptables -A INPUT -p tcp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
+iptables -A INPUT -p udp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
 
 # SMTP
 # iptables -A INPUT -p tcp -m multiport --sports $SMTP -j ACCEPT # ANY -> SELF
@@ -383,6 +392,13 @@ fi
 ###########################################################
 iptables -A INPUT  -j LOG --log-prefix "drop: "
 iptables -A INPUT  -j DROP
+
+
+# 開発用
+if [ "$1" == "-t" ]
+then
+	exit 0;
+fi
 
 ###########################################################
 # SSH 締め出し回避策
